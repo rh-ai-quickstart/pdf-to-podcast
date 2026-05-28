@@ -1,0 +1,254 @@
+# Default values for pdf-to-podcast blueprint
+# This chart works with both standard Kubernetes and OpenShift
+
+# Global settings
+global:
+  namespace: pdf-to-podcast
+
+# OpenShift-specific configuration
+openshift:
+  enabled: false  # Set to true to enable OpenShift-compatible deployment
+
+  # Security Context configuration for OpenShift restricted SCC
+  securityContext:
+    # Pod-level security context
+    pod:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+
+    # Container-level security context
+    container:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      capabilities:
+        drop:
+          - ALL
+
+  # Route configuration for external access
+  routes:
+    enabled: true
+
+    # API Service Route
+    api:
+      enabled: true
+      host: ""  # Auto-generated if empty
+      timeout: "300s"  # 5 minutes for podcast generation
+      tls:
+        enabled: true
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+    # Jaeger UI Route
+    jaeger:
+      enabled: true
+      host: ""
+      tls:
+        enabled: true
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+  # Storage class override for OpenShift
+  storageClass: "gp3-csi"
+
+  # Init container image for OpenShift compatibility
+  initContainer:
+    image: "registry.access.redhat.com/ubi8/ubi-minimal:latest"
+
+  # Build configuration for OpenShift BuildConfig
+  build:
+    enabled: true
+    # Base image registry for S2I builds
+    baseImage: "registry.access.redhat.com/ubi9/python-311:latest"
+
+# Redis configuration
+redis:
+  enabled: true
+  fullnameOverride: "pdf-redis"
+  image:
+    repository: "redis"
+    tag: "latest"
+  replicas: 1
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+# MinIO configuration
+minio:
+  enabled: true
+  fullnameOverride: "pdf-minio"
+  image:
+    repository: "minio/minio"
+    tag: "latest"
+  replicas: 1
+  service:
+    port: 9000
+    consolePort: 9001
+  credentials:
+    rootUser: "minioadmin"
+    rootPassword: "minioadmin"
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 1
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 2Gi
+
+# Jaeger configuration
+jaeger:
+  enabled: true
+  fullnameOverride: "pdf-jaeger"
+  image:
+    repository: "jaegertracing/all-in-one"
+    tag: "latest"
+  replicas: 1
+  service:
+    uiPort: 16686
+    otlpGrpcPort: 4317
+    otlpHttpPort: 4318
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+# API Service configuration
+apiService:
+  enabled: true
+  fullnameOverride: "pdf-api"
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "api-service"
+    tag: "latest"
+  replicas: 1
+  service:
+    port: 8002
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+# Agent Service configuration
+agentService:
+  enabled: true
+  fullnameOverride: "pdf-agent"
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "agent-service"
+    tag: "latest"
+  replicas: 1
+  service:
+    port: 8964
+  resources:
+    requests:
+      cpu: 1
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 2Gi
+
+# PDF Service configuration
+pdfService:
+  enabled: true
+  fullnameOverride: "pdf-service"
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "pdf-service"
+    tag: "latest"
+  replicas: 1
+  service:
+    port: 8003
+  resources:
+    requests:
+      cpu: 2
+      memory: 4Gi
+    limits:
+      cpu: 4
+      memory: 8Gi
+
+# TTS Service configuration
+ttsService:
+  enabled: true
+  fullnameOverride: "pdf-tts"
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "tts-service"
+    tag: "latest"
+  replicas: 1
+  service:
+    port: 8889
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+# PDF API (Celery API) configuration
+pdfApi:
+  enabled: true
+  fullnameOverride: "pdf-model-api"
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "pdf-api"
+    tag: "latest"
+  replicas: 1
+  service:
+    port: 8004
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 1
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 2Gi
+
+# Celery Worker configuration
+celeryWorker:
+  enabled: true
+  fullnameOverride: "pdf-celery-worker"
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "celery-worker"
+    tag: "latest"
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 2
+      memory: 4Gi
+    limits:
+      cpu: 4
+      memory: 8Gi
+
+# Application secrets
+# These should be provided via --set flags or external secret management
+secrets:
+  nvidiaApiKey: ""  # Required for NVIDIA NIM API
+  elevenlabsApiKey: ""  # Required for TTS service
+
+# Application configuration
+config:
+  maxConcurrentRequests: "1"
+  modelConfigPath: "/app/config/models.json"

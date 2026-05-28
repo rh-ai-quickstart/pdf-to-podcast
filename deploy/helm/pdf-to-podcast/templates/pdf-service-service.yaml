@@ -1,0 +1,18 @@
+{{- if .Values.pdfService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: pdf-service
+  labels:
+    app: {{ .Values.pdfService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ .Values.pdfService.fullnameOverride }}
+  type: {{ include "pdf-to-podcast.serviceType" . }}
+  ports:
+    - port: {{ .Values.pdfService.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+{{- end }}

@@ -1,0 +1,18 @@
+{{- if and .Values.minio.enabled .Values.minio.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.minio.fullnameOverride }}-pvc
+  labels:
+    app: {{ .Values.minio.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.openshift.enabled }}
+  storageClassName: {{ .Values.openshift.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.minio.persistence.size }}
+{{- end }}

@@ -1,0 +1,311 @@
+{{- if .Values.openshift.enabled }}
+---
+# API Service Route
+{{- if and .Values.openshift.routes.enabled .Values.openshift.routes.api.enabled .Values.apiService.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Values.apiService.fullnameOverride }}-route
+  labels:
+    app: {{ .Values.apiService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: {{ .Values.openshift.routes.api.timeout | default "300s" | quote }}
+spec:
+  {{- if .Values.openshift.routes.api.host }}
+  host: {{ .Values.openshift.routes.api.host }}
+  {{- end }}
+  to:
+    kind: Service
+    name: api-service
+    weight: 100
+  port:
+    targetPort: http
+  {{- if .Values.openshift.routes.api.tls.enabled }}
+  tls:
+    termination: {{ .Values.openshift.routes.api.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.openshift.routes.api.tls.insecureEdgeTerminationPolicy }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}
+
+---
+# Jaeger UI Route
+{{- if and .Values.openshift.routes.enabled .Values.openshift.routes.jaeger.enabled .Values.jaeger.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Values.jaeger.fullnameOverride }}-route
+  labels:
+    app: {{ .Values.jaeger.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.openshift.routes.jaeger.host }}
+  host: {{ .Values.openshift.routes.jaeger.host }}
+  {{- end }}
+  to:
+    kind: Service
+    name: jaeger
+    weight: 100
+  port:
+    targetPort: ui
+  {{- if .Values.openshift.routes.jaeger.tls.enabled }}
+  tls:
+    termination: {{ .Values.openshift.routes.jaeger.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.openshift.routes.jaeger.tls.insecureEdgeTerminationPolicy }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}
+
+---
+# anyuid SCC RoleBinding for infrastructure services
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pdf-to-podcast.fullname" . }}-anyuid-scc
+  labels:
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Release.Namespace }}
+
+---
+# BuildConfig for API Service
+{{- if and .Values.openshift.build.enabled .Values.apiService.enabled }}
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ .Values.apiService.fullnameOverride }}-build
+  labels:
+    app: {{ .Values.apiService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: {{ .Values.apiService.image.name }}:{{ .Values.apiService.image.tag }}
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/APIService/Dockerfile
+{{- end }}
+
+---
+# ImageStream for API Service
+{{- if and .Values.openshift.build.enabled .Values.apiService.enabled }}
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ .Values.apiService.image.name }}
+  labels:
+    app: {{ .Values.apiService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  lookupPolicy:
+    local: true
+{{- end }}
+
+---
+# BuildConfig for Agent Service
+{{- if and .Values.openshift.build.enabled .Values.agentService.enabled }}
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ .Values.agentService.fullnameOverride }}-build
+  labels:
+    app: {{ .Values.agentService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: {{ .Values.agentService.image.name }}:{{ .Values.agentService.image.tag }}
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/AgentService/Dockerfile
+{{- end }}
+
+---
+# ImageStream for Agent Service
+{{- if and .Values.openshift.build.enabled .Values.agentService.enabled }}
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ .Values.agentService.image.name }}
+  labels:
+    app: {{ .Values.agentService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  lookupPolicy:
+    local: true
+{{- end }}
+
+---
+# BuildConfig for PDF Service
+{{- if and .Values.openshift.build.enabled .Values.pdfService.enabled }}
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ .Values.pdfService.fullnameOverride }}-build
+  labels:
+    app: {{ .Values.pdfService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: {{ .Values.pdfService.image.name }}:{{ .Values.pdfService.image.tag }}
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/PDFService/Dockerfile
+{{- end }}
+
+---
+# ImageStream for PDF Service
+{{- if and .Values.openshift.build.enabled .Values.pdfService.enabled }}
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ .Values.pdfService.image.name }}
+  labels:
+    app: {{ .Values.pdfService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  lookupPolicy:
+    local: true
+{{- end }}
+
+---
+# BuildConfig for TTS Service
+{{- if and .Values.openshift.build.enabled .Values.ttsService.enabled }}
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ .Values.ttsService.fullnameOverride }}-build
+  labels:
+    app: {{ .Values.ttsService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: {{ .Values.ttsService.image.name }}:{{ .Values.ttsService.image.tag }}
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/TTSService/Dockerfile
+{{- end }}
+
+---
+# ImageStream for TTS Service
+{{- if and .Values.openshift.build.enabled .Values.ttsService.enabled }}
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ .Values.ttsService.image.name }}
+  labels:
+    app: {{ .Values.ttsService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  lookupPolicy:
+    local: true
+{{- end }}
+
+---
+# BuildConfig for PDF API
+{{- if and .Values.openshift.build.enabled .Values.pdfApi.enabled }}
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ .Values.pdfApi.fullnameOverride }}-build
+  labels:
+    app: {{ .Values.pdfApi.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: {{ .Values.pdfApi.image.name }}:{{ .Values.pdfApi.image.tag }}
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/PDFService/PDFModelService/Dockerfile.api
+      buildArgs:
+        - name: OPENSHIFT_MODE
+          value: "true"
+{{- end }}
+
+---
+# ImageStream for PDF API
+{{- if and .Values.openshift.build.enabled .Values.pdfApi.enabled }}
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ .Values.pdfApi.image.name }}
+  labels:
+    app: {{ .Values.pdfApi.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  lookupPolicy:
+    local: true
+{{- end }}
+
+---
+# BuildConfig for Celery Worker
+{{- if and .Values.openshift.build.enabled .Values.celeryWorker.enabled }}
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ .Values.celeryWorker.fullnameOverride }}-build
+  labels:
+    app: {{ .Values.celeryWorker.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: {{ .Values.celeryWorker.image.name }}:{{ .Values.celeryWorker.image.tag }}
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/PDFService/PDFModelService/Dockerfile.worker
+      buildArgs:
+        - name: OPENSHIFT_MODE
+          value: "true"
+{{- end }}
+
+---
+# ImageStream for Celery Worker
+{{- if and .Values.openshift.build.enabled .Values.celeryWorker.enabled }}
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ .Values.celeryWorker.image.name }}
+  labels:
+    app: {{ .Values.celeryWorker.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  lookupPolicy:
+    local: true
+{{- end }}
+
+{{- end }}

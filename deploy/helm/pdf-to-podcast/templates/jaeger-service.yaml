@@ -1,0 +1,26 @@
+{{- if .Values.jaeger.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  labels:
+    app: {{ .Values.jaeger.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ .Values.jaeger.fullnameOverride }}
+  type: {{ include "pdf-to-podcast.serviceType" . }}
+  ports:
+    - port: {{ .Values.jaeger.service.uiPort }}
+      targetPort: ui
+      protocol: TCP
+      name: ui
+    - port: {{ .Values.jaeger.service.otlpGrpcPort }}
+      targetPort: otlp-grpc
+      protocol: TCP
+      name: otlp-grpc
+    - port: {{ .Values.jaeger.service.otlpHttpPort }}
+      targetPort: otlp-http
+      protocol: TCP
+      name: otlp-http
+{{- end }}

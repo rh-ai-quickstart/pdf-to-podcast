@@ -1,0 +1,92 @@
+{{- if .Values.minio.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.minio.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.minio.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.minio.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.minio.fullnameOverride }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.minio.fullnameOverride }}
+    spec:
+      automountServiceAccountToken: false
+
+      {{- if .Values.openshift.enabled }}
+      securityContext:
+        {{- include "pdf-to-podcast.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: minio
+          image: "{{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}"
+          imagePullPolicy: Always
+
+          {{- if .Values.openshift.enabled }}
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+
+          command: ["minio", "server", "/data", "--console-address", ":9001"]
+
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pdf-to-podcast.fullname" . }}-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pdf-to-podcast.fullname" . }}-credentials
+                  key: MINIO_ROOT_PASSWORD
+
+          ports:
+            - name: api
+              containerPort: {{ .Values.minio.service.port }}
+              protocol: TCP
+            - name: console
+              containerPort: {{ .Values.minio.service.consolePort }}
+              protocol: TCP
+
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+
+      volumes:
+        {{- if .Values.minio.persistence.enabled }}
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.minio.fullnameOverride }}-pvc
+        {{- else }}
+        - name: minio-data
+          emptyDir: {}
+        {{- end }}
+{{- end }}

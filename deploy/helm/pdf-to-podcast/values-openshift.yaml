@@ -1,0 +1,92 @@
+# OpenShift value overrides for pdf-to-podcast blueprint
+#
+# Usage:
+#   helm install pdf-to-podcast ./deploy/helm/pdf-to-podcast \
+#     -f deploy/helm/pdf-to-podcast/values-openshift.yaml \
+#     --set secrets.nvidiaApiKey="$NVIDIA_API_KEY" \
+#     --set secrets.elevenlabsApiKey="$ELEVENLABS_API_KEY" \
+#     --namespace <namespace>
+
+openshift:
+  enabled: true
+
+  # Security Context configuration for OpenShift restricted SCC
+  securityContext:
+    pod:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    container:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      capabilities:
+        drop:
+          - ALL
+
+  # Route configuration for external access
+  routes:
+    enabled: true
+    api:
+      enabled: true
+      host: ""  # Auto-generated if empty
+      timeout: "300s"  # 5 minutes for podcast generation
+      tls:
+        enabled: true
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+    jaeger:
+      enabled: true
+      host: ""
+      tls:
+        enabled: true
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+  # Storage class for OpenShift
+  storageClass: "gp3-csi"
+
+  # Init container image for OpenShift compatibility
+  initContainer:
+    image: "registry.access.redhat.com/ubi8/ubi-minimal:latest"
+
+  # Build configuration for OpenShift BuildConfig
+  build:
+    enabled: true
+    baseImage: "registry.access.redhat.com/ubi9/python-311:latest"
+
+# Service-specific overrides for OpenShift
+# Images will be pulled from OpenShift internal registry after builds complete
+apiService:
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "api-service"
+
+agentService:
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "agent-service"
+
+pdfService:
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "pdf-service"
+
+ttsService:
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "tts-service"
+
+pdfApi:
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "pdf-api"
+
+celeryWorker:
+  image:
+    repository: "image-registry.openshift-image-registry.svc:5000"
+    name: "celery-worker"
+
+# Secrets (MUST be provided via --set or external secret management)
+secrets:
+  nvidiaApiKey: ""  # REQUIRED: --set secrets.nvidiaApiKey="$NVIDIA_API_KEY"
+  elevenlabsApiKey: ""  # REQUIRED: --set secrets.elevenlabsApiKey="$ELEVENLABS_API_KEY"

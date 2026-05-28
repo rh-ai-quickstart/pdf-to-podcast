@@ -189,6 +189,109 @@ We use GitHub Actions for CI/CD. We run the following actions:
 - `pr-test`: Runs an end-to-end podcast test on the PR
 - `build-and-push`: Builds and pushes a new container image to the remote repo. This is used to update production deployments
 
+## RHOAI / OpenShift Deployment
+
+This blueprint can be deployed on Red Hat OpenShift AI (RHOAI) using the provided Helm chart with conditional OpenShift support.
+
+### Prerequisites
+- OpenShift cluster 4.x+
+- `oc` CLI logged in with sufficient permissions
+- Helm v3+
+- NVIDIA API key (for LLM inference)
+- ElevenLabs API key (for text-to-speech)
+
+### Quick Start
+
+1. **Set up environment**
+```bash
+export NAMESPACE="pdf-to-podcast"
+export NVIDIA_API_KEY="your-nvidia-api-key"
+export ELEVENLABS_API_KEY="your-elevenlabs-api-key"
+
+oc create namespace $NAMESPACE
+```
+
+2. **Build container images in OpenShift**
+
+The blueprint uses OpenShift BuildConfigs to build images from source:
+
+```bash
+# Install Helm chart (this creates BuildConfigs and ImageStreams)
+helm install pdf-to-podcast ./deploy/helm/pdf-to-podcast \
+  --namespace $NAMESPACE \
+  -f deploy/helm/pdf-to-podcast/values-openshift.yaml \
+  --set secrets.nvidiaApiKey="$NVIDIA_API_KEY" \
+  --set secrets.elevenlabsApiKey="$ELEVENLABS_API_KEY"
+
+# Trigger builds for all services
+oc start-build pdf-api-build -n $NAMESPACE
+oc start-build pdf-agent-build -n $NAMESPACE
+oc start-build pdf-service-build -n $NAMESPACE
+oc start-build pdf-tts-build -n $NAMESPACE
+oc start-build pdf-model-api-build -n $NAMESPACE
+oc start-build pdf-celery-worker-build -n $NAMESPACE
+
+# Monitor build progress
+oc get builds -n $NAMESPACE -w
+```
+
+**Note:** First-time builds may take 10-15 minutes per service.
+
+3. **Verify deployment**
+```bash
+# Check all pods are running
+oc get pods -n $NAMESPACE
+
+# Get API endpoint URL
+API_URL=$(oc get route pdf-api-route -n $NAMESPACE -o jsonpath='{.spec.host}')
+echo "API URL: https://$API_URL"
+
+# Get Jaeger UI URL
+JAEGER_URL=$(oc get route pdf-jaeger-route -n $NAMESPACE -o jsonpath='{.spec.host}')
+echo "Jaeger UI: https://$JAEGER_URL"
+```
+
+4. **Generate a podcast**
+```bash
+# Upload a PDF and generate podcast
+curl -k -X POST https://$API_URL/api/generate-podcast \
+  -H "Content-Type: multipart/form-data" \
+  -F "target_pdf=@samples/sample.pdf" \
+  -F "guide_prompt=Focus on the key findings"
+```
+
+### Features in RHOAI Mode
+- **Conditional OpenShift Support**: Single Helm chart works on both Kubernetes and OpenShift
+- **In-Cluster Builds**: BuildConfigs automatically build images from GitHub source
+- **Secure Routes**: TLS edge termination with automatic certificate management
+- **Security Contexts**: Compliant with OpenShift restricted SCC
+- **Persistent Storage**: OpenShift PVCs for MinIO and PDF temp files
+- **Observability**: Jaeger UI accessible via Route for distributed tracing
+
+### Documentation
+- [TEST-PLAN.md](TEST-PLAN.md) - Comprehensive deployment and verification guide
+- [RHOAI-CONVERSION.md](RHOAI-CONVERSION.md) - Detailed conversion documentation
+
+### Switching Between Kubernetes and OpenShift
+
+The Helm chart supports both modes via the `openshift.enabled` flag:
+
+**OpenShift Mode (RHOAI):**
+```bash
+helm install pdf-to-podcast ./deploy/helm/pdf-to-podcast \
+  -f deploy/helm/pdf-to-podcast/values-openshift.yaml \
+  --set secrets.nvidiaApiKey="$NVIDIA_API_KEY" \
+  --set secrets.elevenlabsApiKey="$ELEVENLABS_API_KEY"
+```
+
+**Standard Kubernetes Mode:**
+```bash
+helm install pdf-to-podcast ./deploy/helm/pdf-to-podcast \
+  --set openshift.enabled=false \
+  --set secrets.nvidiaApiKey="$NVIDIA_API_KEY" \
+  --set secrets.elevenlabsApiKey="$ELEVENLABS_API_KEY"
+```
+
 ## Security Considerations
 
 **Important** : This setup uses HTTP and is not intended for production deployments. For production deployments, consider implementing the following security measures:

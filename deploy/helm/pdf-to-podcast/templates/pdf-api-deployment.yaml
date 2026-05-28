@@ -1,0 +1,112 @@
+{{- if .Values.pdfApi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.pdfApi.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.pdfApi.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.pdfApi.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.pdfApi.fullnameOverride }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.pdfApi.fullnameOverride }}
+    spec:
+      automountServiceAccountToken: false
+
+      {{- if .Values.openshift.enabled }}
+      securityContext:
+        {{- include "pdf-to-podcast.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: pdf-api
+          {{- if .Values.openshift.enabled }}
+          image: "{{ .Values.pdfApi.image.repository }}/{{ .Release.Namespace }}/{{ .Values.pdfApi.image.name }}:{{ .Values.pdfApi.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.pdfApi.image.repository }}/{{ .Values.pdfApi.image.name }}:{{ .Values.pdfApi.image.tag }}"
+          {{- end }}
+          imagePullPolicy: Always
+
+          {{- if .Values.openshift.enabled }}
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+
+          env:
+            - name: CELERY_BROKER_URL
+              value: "{{ include "pdf-to-podcast.redisUrl" . }}/0"
+            - name: CELERY_RESULT_BACKEND
+              value: "{{ include "pdf-to-podcast.redisUrl" . }}/0"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: {{ .Values.redis.service.port | quote }}
+            {{- if .Values.openshift.enabled }}
+            - name: OPENSHIFT_MODE
+              value: "true"
+            - name: MINIO_ENDPOINT
+              value: "minio:{{ .Values.minio.service.port }}"
+            - name: MINIO_ACCESS_KEY
+              value: {{ .Values.minio.credentials.rootUser | quote }}
+            - name: MINIO_SECRET_KEY
+              value: {{ .Values.minio.credentials.rootPassword | quote }}
+            - name: MINIO_BUCKET_NAME
+              value: "pdf-temp-files"
+            - name: OTLP_ENDPOINT
+              value: "http://jaeger:{{ .Values.jaeger.service.otlpGrpcPort }}"
+            - name: HOME
+              value: "/tmp"
+            {{- else }}
+            - name: TEMP_FILE_DIR
+              value: "/tmp/pdf_conversions"
+            {{- end }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.pdfApi.service.port }}
+              protocol: TCP
+
+          {{- if not .Values.openshift.enabled }}
+          volumeMounts:
+            - name: pdf-temp
+              mountPath: /tmp/pdf_conversions
+          {{- end }}
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            {{- toYaml .Values.pdfApi.resources | nindent 12 }}
+
+      {{- if not .Values.openshift.enabled }}
+      volumes:
+        {{- if .Values.pdfApi.persistence.enabled }}
+        - name: pdf-temp
+          persistentVolumeClaim:
+            claimName: {{ .Values.pdfApi.fullnameOverride }}-temp-pvc
+        {{- else }}
+        - name: pdf-temp
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+{{- end }}

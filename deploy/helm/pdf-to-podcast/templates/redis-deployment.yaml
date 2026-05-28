@@ -1,0 +1,92 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.redis.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.redis.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.redis.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.redis.fullnameOverride }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.redis.fullnameOverride }}
+    spec:
+      automountServiceAccountToken: false
+
+      {{- if .Values.openshift.enabled }}
+      securityContext:
+        {{- include "pdf-to-podcast.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+
+      initContainers:
+        {{- if .Values.openshift.enabled }}
+        - name: create-redis-data-folder
+          image: {{ .Values.openshift.initContainer.image }}
+          command: ['sh', '-c', 'mkdir -p /data']
+          volumeMounts:
+            - name: redis-data-volume
+              mountPath: /data
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+        {{- else }}
+        - name: create-redis-data-folder
+          image: busybox:1.28
+          command: ['sh', '-c', 'mkdir -p /data && chmod 755 /data']
+          volumeMounts:
+            - name: redis-data-volume
+              mountPath: /data
+        {{- end }}
+
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: Always
+
+          {{- if .Values.openshift.enabled }}
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+
+          command: ["redis-server", "--appendonly", "no"]
+
+          ports:
+            - name: redis
+              containerPort: {{ .Values.redis.service.port }}
+              protocol: TCP
+
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+
+          volumeMounts:
+            - name: redis-data-volume
+              mountPath: /data
+
+      volumes:
+        - name: redis-data-volume
+          emptyDir: {}
+{{- end }}

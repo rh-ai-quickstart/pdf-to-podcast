@@ -1,5 +1,10 @@
 FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel
 
+# Build argument for OpenShift mode
+# When true: assumes build context is repo root
+# When false (default): assumes build context is services/PDFService/PDFModelService/
+ARG OPENSHIFT_MODE=false
+
 # Install system dependencies
 RUN apt-get update \
     && apt-get install -y \
@@ -12,18 +17,40 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy everything to temp location first
+COPY . /build/
+
 WORKDIR /app
 
+# Install shared package (only for OpenShift mode, when building from root)
+RUN if [ "$OPENSHIFT_MODE" = "true" ]; then \
+      if [ -d /build/shared ]; then \
+        cp -r /build/shared /shared && pip install /shared; \
+      fi; \
+    fi
+
 # Install Python dependencies - worker requirements with ML dependencies
-COPY requirements.worker.txt /app/
+RUN if [ "$OPENSHIFT_MODE" = "true" ]; then \
+      cp /build/services/PDFService/PDFModelService/requirements.worker.txt /app/; \
+    else \
+      cp /build/requirements.worker.txt /app/; \
+    fi
 RUN pip install -r requirements.worker.txt
+RUN if [ "$OPENSHIFT_MODE" = "true" ]; then pip install fastapi; fi
 
 # Download required models
 RUN echo 'from deepsearch_glm.utils.load_pretrained_models import load_pretrained_nlp_models\nload_pretrained_nlp_models(verbose=True)' > download_models.py
 RUN python download_models.py
 
 # Copy application files
-COPY tasks.py /app/
+RUN if [ "$OPENSHIFT_MODE" = "true" ]; then \
+      cp /build/services/PDFService/PDFModelService/tasks.py /app/; \
+    else \
+      cp /build/tasks.py /app/; \
+    fi
+
+# Clean up build directory
+RUN rm -rf /build
 
 # Create directory for temporary files
 RUN mkdir -p /tmp/pdf_conversions

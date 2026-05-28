@@ -1,0 +1,16 @@
+apiVersion: v2
+name: pdf-to-podcast
+description: NVIDIA AI Blueprint - PDF to Podcast conversion using NIMs
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - nvidia
+  - ai
+  - blueprint
+  - podcast
+  - nim
+  - openshift
+  - rhoai
+maintainers:
+  - name: NVIDIA AI Blueprints

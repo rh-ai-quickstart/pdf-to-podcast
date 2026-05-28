@@ -1,0 +1,18 @@
+{{- if .Values.agentService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-service
+  labels:
+    app: {{ .Values.agentService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ .Values.agentService.fullnameOverride }}
+  type: {{ include "pdf-to-podcast.serviceType" . }}
+  ports:
+    - port: {{ .Values.agentService.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+{{- end }}

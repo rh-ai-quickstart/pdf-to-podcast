@@ -1,0 +1,100 @@
+{{- if .Values.agentService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.agentService.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.agentService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.agentService.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.agentService.fullnameOverride }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.agentService.fullnameOverride }}
+    spec:
+      automountServiceAccountToken: false
+
+      {{- if .Values.openshift.enabled }}
+      securityContext:
+        {{- include "pdf-to-podcast.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: agent-service
+          {{- if .Values.openshift.enabled }}
+          image: "{{ .Values.agentService.image.repository }}/{{ .Release.Namespace }}/{{ .Values.agentService.image.name }}:{{ .Values.agentService.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.agentService.image.repository }}/{{ .Values.agentService.image.name }}:{{ .Values.agentService.image.tag }}"
+          {{- end }}
+          imagePullPolicy: Always
+
+          {{- if .Values.openshift.enabled }}
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+
+          env:
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pdf-to-podcast.fullname" . }}-credentials
+                  key: NVIDIA_API_KEY
+            - name: REDIS_URL
+              value: {{ include "pdf-to-podcast.redisUrl" . | quote }}
+            - name: MODEL_CONFIG_PATH
+              value: "{{ .Values.config.modelConfigPath }}"
+            {{- if .Values.openshift.enabled }}
+            - name: MINIO_ENDPOINT
+              value: "minio:{{ .Values.minio.service.port }}"
+            - name: MINIO_ACCESS_KEY
+              value: {{ .Values.minio.credentials.rootUser | quote }}
+            - name: MINIO_SECRET_KEY
+              value: {{ .Values.minio.credentials.rootPassword | quote }}
+            - name: MINIO_BUCKET_NAME
+              value: "audio-results"
+            - name: OTLP_ENDPOINT
+              value: "http://jaeger:{{ .Values.jaeger.service.otlpGrpcPort }}"
+            - name: HOME
+              value: "/tmp"
+            {{- end }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.agentService.service.port }}
+              protocol: TCP
+
+          volumeMounts:
+            - name: models-config
+              mountPath: /app/config
+              readOnly: true
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            {{- toYaml .Values.agentService.resources | nindent 12 }}
+
+      volumes:
+        - name: models-config
+          configMap:
+            name: {{ include "pdf-to-podcast.fullname" . }}-models-config
+{{- end }}

@@ -1,0 +1,89 @@
+{{- if .Values.apiService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.apiService.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.apiService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.apiService.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.apiService.fullnameOverride }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.apiService.fullnameOverride }}
+    spec:
+      automountServiceAccountToken: false
+
+      {{- if .Values.openshift.enabled }}
+      securityContext:
+        {{- include "pdf-to-podcast.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: api-service
+          {{- if .Values.openshift.enabled }}
+          image: "{{ .Values.apiService.image.repository }}/{{ .Release.Namespace }}/{{ .Values.apiService.image.name }}:{{ .Values.apiService.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.apiService.image.repository }}/{{ .Values.apiService.image.name }}:{{ .Values.apiService.image.tag }}"
+          {{- end }}
+          imagePullPolicy: Always
+
+          {{- if .Values.openshift.enabled }}
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+
+          env:
+            - name: PDF_SERVICE_URL
+              value: "http://pdf-service:{{ .Values.pdfService.service.port }}"
+            - name: AGENT_SERVICE_URL
+              value: "http://agent-service:{{ .Values.agentService.service.port }}"
+            - name: TTS_SERVICE_URL
+              value: "http://tts-service:{{ .Values.ttsService.service.port }}"
+            - name: REDIS_URL
+              value: {{ include "pdf-to-podcast.redisUrl" . | quote }}
+            {{- if .Values.openshift.enabled }}
+            - name: MINIO_ENDPOINT
+              value: "minio:{{ .Values.minio.service.port }}"
+            - name: MINIO_ACCESS_KEY
+              value: {{ .Values.minio.credentials.rootUser | quote }}
+            - name: MINIO_SECRET_KEY
+              value: {{ .Values.minio.credentials.rootPassword | quote }}
+            - name: MINIO_BUCKET_NAME
+              value: "audio-results"
+            - name: OTLP_ENDPOINT
+              value: "http://jaeger:{{ .Values.jaeger.service.otlpGrpcPort }}"
+            - name: HOME
+              value: "/tmp"
+            {{- end }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.apiService.service.port }}
+              protocol: TCP
+
+          readinessProbe:
+            httpGet:
+              path: /docs
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            {{- toYaml .Values.apiService.resources | nindent 12 }}
+{{- end }}

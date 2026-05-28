@@ -1,0 +1,22 @@
+{{- if .Values.minio.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    app: {{ .Values.minio.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ .Values.minio.fullnameOverride }}
+  type: {{ include "pdf-to-podcast.serviceType" . }}
+  ports:
+    - port: {{ .Values.minio.service.port }}
+      targetPort: api
+      protocol: TCP
+      name: api
+    - port: {{ .Values.minio.service.consolePort }}
+      targetPort: console
+      protocol: TCP
+      name: console
+{{- end }}

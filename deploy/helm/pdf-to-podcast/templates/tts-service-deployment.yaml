@@ -1,0 +1,80 @@
+{{- if .Values.ttsService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.ttsService.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.ttsService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.ttsService.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.ttsService.fullnameOverride }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.ttsService.fullnameOverride }}
+    spec:
+      automountServiceAccountToken: false
+
+      {{- if .Values.openshift.enabled }}
+      securityContext:
+        {{- include "pdf-to-podcast.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: tts-service
+          {{- if .Values.openshift.enabled }}
+          image: "{{ .Values.ttsService.image.repository }}/{{ .Release.Namespace }}/{{ .Values.ttsService.image.name }}:{{ .Values.ttsService.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.ttsService.image.repository }}/{{ .Values.ttsService.image.name }}:{{ .Values.ttsService.image.tag }}"
+          {{- end }}
+          imagePullPolicy: Always
+
+          {{- if .Values.openshift.enabled }}
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+
+          env:
+            - name: MAX_CONCURRENT_REQUESTS
+              value: {{ .Values.config.maxConcurrentRequests | quote }}
+            - name: ELEVENLABS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pdf-to-podcast.fullname" . }}-credentials
+                  key: ELEVENLABS_API_KEY
+            - name: REDIS_URL
+              value: {{ include "pdf-to-podcast.redisUrl" . | quote }}
+            {{- if .Values.openshift.enabled }}
+            - name: HOME
+              value: "/tmp"
+            {{- end }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.ttsService.service.port }}
+              protocol: TCP
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            {{- toYaml .Values.ttsService.resources | nindent 12 }}
+{{- end }}

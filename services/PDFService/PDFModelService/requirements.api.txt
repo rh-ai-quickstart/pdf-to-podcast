@@ -4,6 +4,8 @@ uvicorn
 celery[redis]
 redis
 docling==2.2.0
+minio
+ujson
 opentelemetry-api
 opentelemetry-sdk
 opentelemetry-instrumentation-fastapi

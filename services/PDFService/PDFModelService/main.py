@@ -12,6 +12,26 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(debug=True)
 
+# Check if running in OpenShift mode
+OPENSHIFT_MODE = os.getenv("OPENSHIFT_MODE", "false").lower() == "true"
+
+# Initialize storage manager for OpenShift mode
+storage_manager = None
+if OPENSHIFT_MODE:
+    from shared.storage import StorageManager
+    from shared.otel import OpenTelemetryInstrumentation, OpenTelemetryConfig
+
+    telemetry = OpenTelemetryInstrumentation()
+    config = OpenTelemetryConfig(
+        service_name="pdf-model-api",
+        otlp_endpoint=os.getenv("OTLP_ENDPOINT", "http://jaeger:4317"),
+        enable_redis=False,
+        enable_requests=False,
+    )
+    telemetry.initialize(config, app)
+    storage_manager = StorageManager(telemetry=telemetry)
+    logger.info("Running in OpenShift mode with MinIO storage")
+
 
 def get_celery_task():
     """Lazy import of Celery task to avoid immediate docling import"""
@@ -26,28 +46,55 @@ async def convert_pdf(files: List[UploadFile] = File(...)) -> Dict[str, str]:
     Start an asynchronous PDF conversion task for multiple files
     """
     file_paths = []
+    file_ids = []
     try:
-        # Save files with unique names
-        temp_dir = os.getenv("TEMP_FILE_DIR", "/tmp/pdf_conversions")
-        os.makedirs(temp_dir, exist_ok=True)
+        if OPENSHIFT_MODE:
+            # Store files in MinIO
+            job_id = str(uuid.uuid4())
+            for file in files:
+                if file.content_type != "application/pdf":
+                    raise HTTPException(
+                        status_code=400, detail=f"File {file.filename} must be a PDF"
+                    )
 
-        # Save all files
-        for file in files:
-            if file.content_type != "application/pdf":
-                raise HTTPException(
-                    status_code=400, detail=f"File {file.filename} must be a PDF"
+                file_id = str(uuid.uuid4())
+                content = await file.read()
+
+                # Store in MinIO
+                storage_manager.store_file(
+                    user_id="pdf-service",
+                    job_id=job_id,
+                    content=content,
+                    filename=f"{file_id}.pdf",
+                    content_type="application/pdf",
                 )
+                file_ids.append(file_id)
 
-            file_id = str(uuid.uuid4())
-            temp_file_path = os.path.join(temp_dir, f"{file_id}.pdf")
-            content = await file.read()
-            with open(temp_file_path, "wb") as temp_file:
-                temp_file.write(content)
-            file_paths.append(temp_file_path)
+            # Pass job_id and file_ids to worker
+            convert_pdf_task = get_celery_task()
+            task = convert_pdf_task.delay(job_id, file_ids)
+        else:
+            # Original local file storage behavior
+            temp_dir = os.getenv("TEMP_FILE_DIR", "/tmp/pdf_conversions")
+            os.makedirs(temp_dir, exist_ok=True)
 
-        # Start batch conversion
-        convert_pdf_task = get_celery_task()
-        task = convert_pdf_task.delay(file_paths)
+            # Save all files
+            for file in files:
+                if file.content_type != "application/pdf":
+                    raise HTTPException(
+                        status_code=400, detail=f"File {file.filename} must be a PDF"
+                    )
+
+                file_id = str(uuid.uuid4())
+                temp_file_path = os.path.join(temp_dir, f"{file_id}.pdf")
+                content = await file.read()
+                with open(temp_file_path, "wb") as temp_file:
+                    temp_file.write(content)
+                file_paths.append(temp_file_path)
+
+            # Start batch conversion
+            convert_pdf_task = get_celery_task()
+            task = convert_pdf_task.delay(file_paths)
 
         return {
             "task_id": task.id,
@@ -58,9 +105,10 @@ async def convert_pdf(files: List[UploadFile] = File(...)) -> Dict[str, str]:
     except Exception as e:
         logger.error(f"Error starting conversion: {str(e)}")
         # Clean up files if task creation fails
-        for path in file_paths:
-            if os.path.exists(path):
-                os.unlink(path)
+        if not OPENSHIFT_MODE:
+            for path in file_paths:
+                if os.path.exists(path):
+                    os.unlink(path)
         raise HTTPException(status_code=500, detail=str(e))
 
 

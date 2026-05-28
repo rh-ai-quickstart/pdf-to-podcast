@@ -1,0 +1,15 @@
+{{- if and .Values.pdfApi.enabled .Values.pdfApi.persistence.enabled (not .Values.openshift.enabled) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.pdfApi.fullnameOverride }}-temp-pvc
+  labels:
+    app: {{ .Values.pdfApi.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.pdfApi.persistence.size }}
+{{- end }}

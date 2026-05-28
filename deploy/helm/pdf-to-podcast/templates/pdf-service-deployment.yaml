@@ -1,0 +1,75 @@
+{{- if .Values.pdfService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.pdfService.fullnameOverride }}-deployment
+  labels:
+    app: {{ .Values.pdfService.fullnameOverride }}
+    {{- include "pdf-to-podcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.pdfService.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.pdfService.fullnameOverride }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.pdfService.fullnameOverride }}
+    spec:
+      automountServiceAccountToken: false
+
+      {{- if .Values.openshift.enabled }}
+      securityContext:
+        {{- include "pdf-to-podcast.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: pdf-service
+          {{- if .Values.openshift.enabled }}
+          image: "{{ .Values.pdfService.image.repository }}/{{ .Release.Namespace }}/{{ .Values.pdfService.image.name }}:{{ .Values.pdfService.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.pdfService.image.repository }}/{{ .Values.pdfService.image.name }}:{{ .Values.pdfService.image.tag }}"
+          {{- end }}
+          imagePullPolicy: Always
+
+          {{- if .Values.openshift.enabled }}
+          securityContext:
+            {{- include "pdf-to-podcast.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+
+          env:
+            - name: REDIS_URL
+              value: {{ include "pdf-to-podcast.redisUrl" . | quote }}
+            - name: MODEL_API_URL
+              value: "http://pdf-api:{{ .Values.pdfApi.service.port }}"
+            {{- if .Values.openshift.enabled }}
+            - name: HOME
+              value: "/tmp"
+            {{- end }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.pdfService.service.port }}
+              protocol: TCP
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            {{- toYaml .Values.pdfService.resources | nindent 12 }}
+{{- end }}
